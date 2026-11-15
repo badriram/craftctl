@@ -205,6 +205,10 @@ fn real_main() -> Result<u32> {
 }
 
 fn main() -> ExitCode {
+    // Exit quietly when the reader goes away (`craftctl status | head`) instead of panicking.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     match real_main() {
         Ok(0) => ExitCode::SUCCESS,
         Ok(n) => {

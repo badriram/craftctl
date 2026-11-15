@@ -74,4 +74,25 @@ mod tests {
         let first_fpr = text.lines().find(|l| l.starts_with("fpr:")).and_then(|l| l.split(':').nth(9));
         assert_eq!(first_fpr, Some(ARTCRAFT_FPR));
     }
+
+    /// A real ArtCraft release file and its signature (CADCraft 0.20.1's SHA256SUMS.txt).
+    #[test]
+    fn verifies_real_signature_and_rejects_tampering() {
+        if which("gpg").is_none() {
+            return;
+        }
+        let dir = std::env::current_dir().unwrap().join("tests/fixtures");
+        let file = dir.join("cadcraft-0.20.1-SHA256SUMS.txt");
+        let sig = dir.join("cadcraft-0.20.1-SHA256SUMS.txt.asc");
+        verify_detached(&file, &sig, ARTCRAFT_FPR).unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let tampered = tmp.path().join("tampered.txt");
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes[0] ^= 1;
+        std::fs::write(&tampered, bytes).unwrap();
+        assert!(verify_detached(&tampered, &sig, ARTCRAFT_FPR).is_err());
+
+        assert!(verify_detached(&file, &sig, "0000000000000000000000000000000000000000").is_err());
+    }
 }
