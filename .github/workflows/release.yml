@@ -20,7 +20,9 @@ jobs:
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md dist/
           tar -czf craftctl-macos-universal.tar.gz -C dist .
       - uses: actions/upload-artifact@v4
-        with: { name: macos, path: craftctl-macos-universal.tar.gz }
+        with:
+          name: macos
+          path: craftctl-macos-universal.tar.gz
   linux:
     strategy:
       matrix:
@@ -38,13 +40,16 @@ jobs:
           cp target/release/craftctl LICENSE-MIT LICENSE-APACHE NOTICE README.md dist/
           tar -czf craftctl-linux-${{ matrix.arch }}.tar.gz -C dist .
       - uses: actions/upload-artifact@v4
-        with: { name: linux-${{ matrix.arch }}, path: craftctl-linux-${{ matrix.arch }}.tar.gz }
+        with:
+          name: linux-${{ matrix.arch }}
+          path: craftctl-linux-${{ matrix.arch }}.tar.gz
   publish:
     needs: [macos, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
-        with: { merge-multiple: true }
+        with:
+          merge-multiple: true
       - run: sha256sum craftctl-*.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt
       - env:
           GH_TOKEN: ${{ github.token }}
