@@ -1,0 +1,3 @@
+# Copy to ~/.config/topgrade.d/craftctl.toml (install.sh does this when topgrade is present).
+[commands]
+"ArtCraft apps + MCP" = "craftctl sync"

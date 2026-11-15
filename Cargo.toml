@@ -1,0 +1,32 @@
+[package]
+name = "craftctl"
+version = "0.1.0"
+edition = "2024"
+description = "Install, update and register MCP servers for the ArtCraft Crafting Apps (unofficial)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/badriram/craftctl"
+readme = "README.md"
+keywords = ["mcp", "artcraft", "claude", "installer", "macos"]
+categories = ["command-line-utilities"]
+rust-version = "1.85"
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+clap = { version = "4.6.7", features = ["derive"] }
+ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem"] }
+libc = "0.2.191"
+memchr = "2.8.3"
+plist = "1.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+toml = "1.2.1"
+ureq = "3.5.2"
+zip = { version = "9.6.0", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

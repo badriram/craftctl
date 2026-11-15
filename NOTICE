@@ -1,0 +1,8 @@
+craftctl is an unofficial tool and is not affiliated with or endorsed by ArtCraft,
+Storyteller or Learning Machines LLC. "ArtCraft" and the app names belong to their owners.
+
+This project includes material from storytold/craft-launcher
+(https://github.com/storytold/craft-launcher, Apache-2.0), commit
+7c613b4ccf901f395b15e5601fb7b2f01073dd37:
+  - assets/launcher-catalog-public-key.pem  (the launcher's pinned catalog key)
+  - tests/fixtures/hosted-catalog.toml and .sig  (signed catalog test fixture)

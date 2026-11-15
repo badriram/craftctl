@@ -1,0 +1,25 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: cargo test
+      - run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir dist
+          lipo -create -output dist/craftctl \
+            target/aarch64-apple-darwin/release/craftctl target/x86_64-apple-darwin/release/craftctl
+          cp LICENSE-MIT LICENSE-APACHE NOTICE README.md dist/
+          tar -czf craftctl-macos-universal.tar.gz -C dist .
+          shasum -a 256 craftctl-macos-universal.tar.gz > SHA256SUMS.txt
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" craftctl-macos-universal.tar.gz SHA256SUMS.txt --generate-notes
