@@ -1,44 +1,48 @@
-//! Installing and updating GUI apps (DMG) and CLIs (zip) on macOS.
+//! macOS: the signed, notarized `.app` from the release DMG into `/Applications`, and the
+//! signed CLI from the release zip into `<install_root>/cli/<app>/`.
 
+use super::{Ctx, is_running, link, read_version};
 use crate::catalog::App;
 use crate::config::Config;
-use crate::net::{Http, Release};
+use crate::net::Release;
 use crate::util::{is_current, remove_dir_if_exists, run, sibling, swap_dir};
 use anyhow::{Context, Result, bail};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub struct Ctx<'a> {
-    pub cfg: &'a Config,
-    pub http: &'a Http,
-    pub dry_run: bool,
-}
-
-pub fn app_path(app: &App) -> PathBuf {
+fn app_path(app: &App) -> PathBuf {
     Path::new("/Applications").join(format!("{}.app", app.bundle_name))
 }
 
-pub fn installed_app_version(app: &App) -> Option<String> {
-    let v = plist::Value::from_file(app_path(app).join("Contents/Info.plist")).ok()?;
-    Some(v.as_dictionary()?.get("CFBundleShortVersionString")?.as_string()?.to_string())
+fn cli_dir(cfg: &Config, app: &App) -> PathBuf {
+    cfg.install_root().join("cli").join(&app.id)
 }
 
-pub fn cli_dir(cfg: &Config, app: &App) -> PathBuf {
-    cfg.cli_root().join(&app.id)
+pub fn gui_version(_cfg: &Config, app: &App) -> Option<String> {
+    let v = plist::Value::from_file(app_path(app).join("Contents/Info.plist")).ok()?;
+    Some(v.as_dictionary()?.get("CFBundleShortVersionString")?.as_string()?.to_string())
 }
 
 pub fn cli_bin(cfg: &Config, app: &App) -> PathBuf {
     cli_dir(cfg, app).join(format!("{}-cli", app.binary))
 }
 
-pub fn installed_cli_version(cfg: &Config, app: &App) -> Option<String> {
-    let v = std::fs::read_to_string(cli_dir(cfg, app).join(".version")).ok()?;
-    Some(v.trim().to_string()).filter(|v| !v.is_empty())
+pub fn cli_version(cfg: &Config, app: &App) -> Option<String> {
+    read_version(&cli_dir(cfg, app).join(".version"))
+}
+
+pub fn update(ctx: &Ctx, app: &App, rel: &Release) -> Vec<Result<String>> {
+    let mut steps = vec![];
+    if ctx.cfg.install_apps {
+        steps.push(update_app(ctx, app, rel).map_err(|e| e.context("app")));
+    }
+    steps.push(update_cli(ctx, app, rel).map_err(|e| e.context("cli")));
+    steps
 }
 
 /// Code signature must be valid and from `team`; bundles must also pass Gatekeeper (notarized).
-pub fn verify_signature(path: &Path, team: &str, bundle: bool) -> Result<()> {
+fn verify_signature(path: &Path, team: &str, bundle: bool) -> Result<()> {
     let mut check = Command::new("codesign");
     check.args(["--verify", "--deep"]);
     if !bundle {
@@ -59,13 +63,8 @@ pub fn verify_signature(path: &Path, team: &str, bundle: bool) -> Result<()> {
     Ok(())
 }
 
-fn is_running(app: &App) -> bool {
-    let exe = app_path(app).join("Contents/MacOS");
-    Command::new("pgrep").arg("-f").arg(exe).output().map(|o| o.status.success()).unwrap_or(false)
-}
-
-pub fn update_app(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
-    let have = installed_app_version(app);
+fn update_app(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
+    let have = gui_version(ctx.cfg, app);
     if is_current(have.as_deref(), &rel.version) {
         return Ok(format!("app {} ok", have.unwrap_or_default()));
     }
@@ -74,7 +73,7 @@ pub fn update_app(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
     if rel.asset(&asset).is_none() {
         return Ok("app: no macOS build in release".into());
     }
-    if have.is_some() && is_running(app) {
+    if have.is_some() && is_running(&app_path(app).join("Contents/MacOS")) {
         return Ok(format!("app {from} -> {} skipped (running; quit it and re-run)", rel.version));
     }
     if ctx.dry_run {
@@ -104,27 +103,11 @@ pub fn update_app(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
     Ok(format!("app {from} -> {} installed", rel.version))
 }
 
-fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let p = entry.path();
-        let ft = entry.file_type().ok()?;
-        if ft.is_file() && p.file_name().is_some_and(|n| n == name) {
-            return Some(p);
-        }
-        if ft.is_dir()
-            && let Some(found) = find_file(&p, name)
-        {
-            return Some(found);
-        }
-    }
-    None
-}
-
-pub fn update_cli(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
-    let have = installed_cli_version(ctx.cfg, app);
+fn update_cli(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
+    let have = cli_version(ctx.cfg, app);
     if is_current(have.as_deref(), &rel.version) && cli_bin(ctx.cfg, app).is_file() {
         if !ctx.dry_run {
-            link(ctx.cfg, app)?;
+            link(ctx.cfg, &cli_bin(ctx.cfg, app))?;
         }
         return Ok(format!("cli {} ok", have.unwrap_or_default()));
     }
@@ -136,7 +119,7 @@ pub fn update_cli(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
     if ctx.dry_run {
         return Ok(format!("cli {from} -> {} (dry run)", rel.version));
     }
-    let root = ctx.cfg.cli_root();
+    let root = ctx.cfg.install_root().join("cli");
     std::fs::create_dir_all(&root)?;
     // Stage inside the CLI root so the final rename never crosses volumes.
     let tmp = tempfile::Builder::new().prefix(".craftctl-").tempdir_in(&root)?;
@@ -151,29 +134,22 @@ pub fn update_cli(ctx: &Ctx, app: &App, rel: &Release) -> Result<String> {
     let folder = bin.parent().context("CLI has no folder")?;
     std::fs::write(folder.join(".version"), format!("{}\n", rel.version))?;
     swap_dir(folder, &cli_dir(ctx.cfg, app))?;
-    link(ctx.cfg, app)?;
+    link(ctx.cfg, &cli_bin(ctx.cfg, app))?;
     Ok(format!("cli {from} -> {} installed", rel.version))
 }
 
-/// Symlink `<bin_dir>/<binary>-cli` to the managed CLI. Never replaces a real file.
-fn link(cfg: &Config, app: &App) -> Result<()> {
-    let target = cli_bin(cfg, app);
-    let dir = cfg.bin_dir();
-    std::fs::create_dir_all(&dir)?;
-    let ln = dir.join(target.file_name().context("CLI has no name")?);
-    match std::fs::symlink_metadata(&ln) {
-        Ok(m) if m.file_type().is_symlink() => {
-            if std::fs::read_link(&ln)? == target {
-                return Ok(());
-            }
-            std::fs::remove_file(&ln)?;
+fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        let ft = entry.file_type().ok()?;
+        if ft.is_file() && p.file_name().is_some_and(|n| n == name) {
+            return Some(p);
         }
-        Ok(_) => {
-            eprintln!("warning: {} exists and is not a symlink; left alone", ln.display());
-            return Ok(());
+        if ft.is_dir()
+            && let Some(found) = find_file(&p, name)
+        {
+            return Some(found);
         }
-        Err(_) => {}
     }
-    std::os::unix::fs::symlink(&target, &ln)?;
-    Ok(())
+    None
 }

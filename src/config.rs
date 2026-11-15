@@ -27,8 +27,11 @@ mcp_exclude = []
 # except the first, which is created. {claude_tmp} is Claude Code's temp folder.
 allow_paths = ["~/Documents/Craft", "{claude_tmp}"]
 
-# Where CLIs are kept, and where their symlinks go (should be on PATH).
-install_root = "~/Applications/artcraft"
+# Where craftctl keeps CLIs (and on Linux, the apps). Default: ~/Applications/artcraft on
+# macOS, ~/.local/share/artcraft on Linux.
+# install_root = "~/Applications/artcraft"
+
+# Where command symlinks go (should be on PATH).
 bin_dir = "~/.local/bin"
 
 # Extra arguments for a server's `mcp` command, per app id.
@@ -45,7 +48,7 @@ pub struct Config {
     pub mcp_targets: Vec<String>,
     pub mcp_exclude: Vec<String>,
     pub allow_paths: Vec<String>,
-    pub install_root: String,
+    pub install_root: Option<String>,
     pub bin_dir: String,
     pub mcp_extra_args: BTreeMap<String, Vec<String>>,
 }
@@ -59,7 +62,7 @@ impl Default for Config {
             mcp_targets: s(&["claude-code", "claude-desktop", "cursor"]),
             mcp_exclude: vec![],
             allow_paths: s(&["~/Documents/Craft", "{claude_tmp}"]),
-            install_root: "~/Applications/artcraft".into(),
+            install_root: None,
             bin_dir: "~/.local/bin".into(),
             mcp_extra_args: BTreeMap::from([
                 ("lightcraft".into(), s(&["--compact"])),
@@ -90,8 +93,12 @@ pub fn load() -> Result<Config> {
 }
 
 impl Config {
-    pub fn cli_root(&self) -> PathBuf {
-        expand(&self.install_root).join("cli")
+    pub fn install_root(&self) -> PathBuf {
+        match &self.install_root {
+            Some(p) => expand(p),
+            None if cfg!(target_os = "macos") => expand("~/Applications/artcraft"),
+            None => expand("~/.local/share/artcraft"),
+        }
     }
 
     pub fn bin_dir(&self) -> PathBuf {

@@ -1,18 +1,25 @@
 #!/bin/sh
-# Install craftctl from the latest GitHub release (macOS), then hook it into topgrade if present.
+# Install craftctl from the latest GitHub release (macOS or Linux), then hook it into topgrade
+# if present:
 #   curl -fsSL https://raw.githubusercontent.com/badriram/craftctl/main/install.sh | sh
 set -eu
 REPO="badriram/craftctl"
 BIN_DIR="${CRAFTCTL_BIN_DIR:-$HOME/.local/bin}"
-ASSET="craftctl-macos-universal.tar.gz"
 
-[ "$(uname -s)" = "Darwin" ] || { echo "craftctl supports macOS only" >&2; exit 1; }
+case "$(uname -s)/$(uname -m)" in
+  Darwin/*) ASSET="craftctl-macos-universal.tar.gz" ;;
+  Linux/x86_64 | Linux/amd64) ASSET="craftctl-linux-x86_64.tar.gz" ;;
+  Linux/aarch64 | Linux/arm64) ASSET="craftctl-linux-aarch64.tar.gz" ;;
+  *) echo "craftctl supports macOS and Linux (x86_64, aarch64); this is $(uname -sm)" >&2; exit 1 ;;
+esac
+if command -v sha256sum >/dev/null 2>&1; then SHA="sha256sum"; else SHA="shasum -a 256"; fi
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 base="https://github.com/$REPO/releases/latest/download"
 curl -fsSL -o "$tmp/$ASSET" "$base/$ASSET"
 curl -fsSL -o "$tmp/SHA256SUMS.txt" "$base/SHA256SUMS.txt"
-(cd "$tmp" && grep " $ASSET\$" SHA256SUMS.txt | shasum -a 256 -c - >/dev/null) \
+(cd "$tmp" && grep " $ASSET\$" SHA256SUMS.txt | $SHA -c - >/dev/null) \
   || { echo "checksum mismatch for $ASSET" >&2; exit 1; }
 tar -xzf "$tmp/$ASSET" -C "$tmp"
 mkdir -p "$BIN_DIR"

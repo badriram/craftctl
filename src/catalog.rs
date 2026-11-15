@@ -3,7 +3,8 @@
 //! The catalog is Ed25519-signed by ArtCraft; the signature is checked against the launcher's
 //! pinned public key before parsing. A valid signature still cannot redirect installs:
 //! official apps must live at `storytold/<id>` and be signed by ArtCraft's Apple team, and
-//! community apps must match the repository and team pinned in `COMMUNITY` below.
+//! community apps must match the repository and team pinned in `COMMUNITY` below. On Linux,
+//! official tarballs must also be PGP-signed by ArtCraft's pinned release key.
 
 use crate::net::Http;
 use crate::util::home;
@@ -23,9 +24,10 @@ const MAX_SIGNATURE: u64 = 128;
 /// Apple Developer team that signs every official ArtCraft app.
 pub const ARTCRAFT_TEAM: &str = "DJ6XS33FX8";
 
-/// Community apps craftctl will install: (id, GitHub repository, Apple team).
+/// Community apps craftctl will install: (id, GitHub repository, Apple team, Linux PGP key).
 /// Adding one is a code change on purpose, as it is in the launcher.
-pub const COMMUNITY: &[(&str, &str, &str)] = &[("solidcraft", "tangency-labs/solidcraft", "G5QA5U5X2S")];
+pub const COMMUNITY: &[(&str, &str, &str, Option<&str>)] =
+    &[("solidcraft", "tangency-labs/solidcraft", "G5QA5U5X2S", None)];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct App {
@@ -37,6 +39,8 @@ pub struct App {
     pub bundle_name: String,
     pub repo: String,
     pub team: String,
+    /// Fingerprint of the key that signs Linux releases, if the publisher signs them.
+    pub linux_key: Option<String>,
 }
 
 #[derive(Debug)]
@@ -89,17 +93,19 @@ fn vet(r: Record) -> Result<App, String> {
         return Err("unsafe app id".into());
     }
     let repo = r.repo.unwrap_or_default();
-    let team = if r.kind.as_deref() == Some("official") {
+    let (team, linux_key) = if r.kind.as_deref() == Some("official") {
         if repo != format!("storytold/{}", r.id) {
             return Err(format!("official app outside storytold/{}", r.id));
         }
         if r.mac_team.as_deref().is_some_and(|t| t != ARTCRAFT_TEAM) {
             return Err("official app with a non-ArtCraft signing team".into());
         }
-        ARTCRAFT_TEAM.to_string()
+        (ARTCRAFT_TEAM.to_string(), Some(crate::pgp::ARTCRAFT_FPR.to_string()))
     } else {
         match COMMUNITY.iter().find(|(id, ..)| *id == r.id) {
-            Some((_, pinned_repo, pinned_team)) if repo == *pinned_repo => pinned_team.to_string(),
+            Some((_, pinned_repo, pinned_team, key)) if repo == *pinned_repo => {
+                (pinned_team.to_string(), key.map(String::from))
+            }
             Some(_) => return Err("repository differs from the pinned one".into()),
             None => return Err("community app not in craftctl's pinned allowlist".into()),
         }
@@ -112,7 +118,7 @@ fn vet(r: Record) -> Result<App, String> {
     if bundle_name.is_empty() || bundle_name.contains('/') || bundle_name.starts_with('.') {
         return Err("unsafe bundle name".into());
     }
-    Ok(App { id: r.id, name: r.name, binary, bundle_name, repo, team })
+    Ok(App { id: r.id, name: r.name, binary, bundle_name, repo, team, linux_key })
 }
 
 /// Parse verified catalog bytes. Bad rows are skipped, not fatal.
@@ -137,7 +143,13 @@ pub fn parse(bytes: &[u8]) -> Result<Catalog> {
 }
 
 fn cache_dir() -> PathBuf {
-    home().join("Library/Caches/craftctl")
+    if cfg!(target_os = "macos") {
+        return home().join("Library/Caches/craftctl");
+    }
+    match std::env::var_os("XDG_CACHE_HOME") {
+        Some(d) if !d.is_empty() => PathBuf::from(d).join("craftctl"),
+        _ => home().join(".cache/craftctl"),
+    }
 }
 
 /// Fetch, verify and parse the catalog; fall back to the last verified copy when offline.
@@ -213,6 +225,8 @@ mod tests {
             parse(&row("id = \"solidcraft\"\nkind = \"community\"\nrepo = \"tangency-labs/solidcraft\""))
                 .unwrap();
         assert_eq!(solid.apps[0].team, "G5QA5U5X2S");
+        assert_eq!(solid.apps[0].linux_key, None);
+        assert_eq!(ok.apps[0].linux_key.as_deref(), Some(crate::pgp::ARTCRAFT_FPR));
 
         let unknown = row("id = \"mailcraft\"\nkind = \"community\"\nrepo = \"someone/mailcraft\"");
         assert!(parse(&unknown).is_err());

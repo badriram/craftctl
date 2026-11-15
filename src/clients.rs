@@ -170,17 +170,23 @@ fn claude_code(plan: &Plan, dry_run: bool) -> Result<Vec<String>> {
     Ok(log)
 }
 
+fn desktop_config() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return home().join("Library/Application Support/Claude/claude_desktop_config.json");
+    }
+    let config = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(d) if !d.is_empty() => PathBuf::from(d),
+        _ => home().join(".config"),
+    };
+    config.join("Claude/claude_desktop_config.json")
+}
+
 pub fn apply(targets: &[String], plan: &Plan, dry_run: bool) -> Vec<String> {
     let mut log = vec![];
     for t in targets {
         let result = match t.as_str() {
             "claude-code" => claude_code(plan, dry_run),
-            "claude-desktop" => json_file_client(
-                t,
-                &home().join("Library/Application Support/Claude/claude_desktop_config.json"),
-                plan,
-                dry_run,
-            ),
+            "claude-desktop" => json_file_client(t, &desktop_config(), plan, dry_run),
             "cursor" => json_file_client(t, &home().join(".cursor/mcp.json"), plan, dry_run),
             other => Ok(vec![format!("{other}: unknown MCP client, skipped")]),
         };

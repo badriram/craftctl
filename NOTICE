@@ -6,3 +6,7 @@ This project includes material from storytold/craft-launcher
 7c613b4ccf901f395b15e5601fb7b2f01073dd37:
   - assets/launcher-catalog-public-key.pem  (the launcher's pinned catalog key)
   - tests/fixtures/hosted-catalog.toml and .sig  (signed catalog test fixture)
+
+assets/artcraft-linux-release-key.asc is ArtCraft's public Linux release signing key
+(fingerprint 2B76741B414AAD6CD33E631213A005C0B9D7C3ED), as published in the
+official app releases as release-signing-key.asc.

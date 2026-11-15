@@ -12,7 +12,8 @@ pub fn home() -> PathBuf {
 /// Expand `~`, `~/…` and the `{claude_tmp}` placeholder (Claude Code's per-user temp folder).
 pub fn expand(p: &str) -> PathBuf {
     let uid = unsafe { libc::getuid() };
-    let s = p.replace("{claude_tmp}", &format!("/private/tmp/claude-{uid}"));
+    let tmp = if cfg!(target_os = "macos") { "/private/tmp" } else { "/tmp" };
+    let s = p.replace("{claude_tmp}", &format!("{tmp}/claude-{uid}"));
     if s == "~" {
         return home();
     }
@@ -108,7 +109,7 @@ mod tests {
     #[test]
     fn expands_home_and_placeholders() {
         assert_eq!(expand("~/x"), home().join("x"));
-        assert!(expand("{claude_tmp}").to_string_lossy().starts_with("/private/tmp/claude-"));
+        assert!(expand("{claude_tmp}").to_string_lossy().contains("tmp/claude-"));
         assert_eq!(expand("/abs"), PathBuf::from("/abs"));
     }
 

@@ -17,14 +17,20 @@ clap = { version = "4.6.7", features = ["derive"] }
 ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem"] }
 libc = "0.2.191"
 memchr = "2.8.3"
-plist = "1.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.11.1"
 tempfile = "3.27.0"
 toml = "1.2.1"
 ureq = "3.5.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.10.3"
 zip = { version = "9.6.0", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tar = "0.4"
+flate2 = "1"
 
 [profile.release]
 lto = true

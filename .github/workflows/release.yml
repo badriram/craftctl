@@ -5,7 +5,7 @@ on:
 permissions:
   contents: write
 jobs:
-  release:
+  macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -19,7 +19,33 @@ jobs:
             target/aarch64-apple-darwin/release/craftctl target/x86_64-apple-darwin/release/craftctl
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md dist/
           tar -czf craftctl-macos-universal.tar.gz -C dist .
-          shasum -a 256 craftctl-macos-universal.tar.gz > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: craftctl-macos-universal.tar.gz }
+  linux:
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+    # 22.04 keeps the glibc requirement low, so the binary runs on older distributions too.
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: cargo test
+      - run: |
+          cargo build --release
+          mkdir dist
+          cp target/release/craftctl LICENSE-MIT LICENSE-APACHE NOTICE README.md dist/
+          tar -czf craftctl-linux-${{ matrix.arch }}.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with: { name: linux-${{ matrix.arch }}, path: craftctl-linux-${{ matrix.arch }}.tar.gz }
+  publish:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { merge-multiple: true }
+      - run: sha256sum craftctl-*.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" craftctl-macos-universal.tar.gz SHA256SUMS.txt --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" craftctl-*.tar.gz SHA256SUMS.txt --generate-notes

@@ -6,6 +6,8 @@ mod clients;
 mod config;
 mod install;
 mod net;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod pgp;
 mod probe;
 mod util;
 
@@ -81,8 +83,8 @@ fn status(ctx: &Ctx, apps: &[App]) -> u32 {
     println!("{:<15} {:>9} {:>9} {:>9}", "app", "gui", "cli", "latest");
     let mut failures = 0;
     for (app, rel) in apps.iter().zip(releases(ctx.http, apps)) {
-        let gui = install::installed_app_version(app);
-        let cli = install::installed_cli_version(ctx.cfg, app);
+        let gui = install::gui_version(ctx.cfg, app);
+        let cli = install::cli_version(ctx.cfg, app);
         let (latest, note) = match &rel {
             Ok(r) => {
                 let gui_ok = !ctx.cfg.install_apps || util::is_current(gui.as_deref(), &r.version);
@@ -112,20 +114,13 @@ fn update(ctx: &Ctx, apps: &[App]) -> u32 {
             }
         };
         let mut parts = vec![];
-        if ctx.cfg.install_apps {
-            match install::update_app(ctx, app, &rel) {
+        for step in install::update(ctx, app, &rel) {
+            match step {
                 Ok(s) => parts.push(s),
                 Err(e) => {
                     failures += 1;
-                    parts.push(format!("app ERROR {}", first_line(&e)));
+                    parts.push(format!("ERROR {}", first_line(&e)));
                 }
-            }
-        }
-        match install::update_cli(ctx, app, &rel) {
-            Ok(s) => parts.push(s),
-            Err(e) => {
-                failures += 1;
-                parts.push(format!("cli ERROR {}", first_line(&e)));
             }
         }
         println!("{:<15} {}", app.id, parts.join(" | "));
@@ -160,7 +155,7 @@ fn mcp(ctx: &Ctx, apps: &[App], full_run: bool, remove: bool) -> u32 {
         );
     }
     let names: Vec<String> = if remove { apps.iter().map(|a| a.id.clone()).collect() } else { vec![] };
-    let prefix = ctx.cfg.cli_root();
+    let prefix = ctx.cfg.install_root();
     let plan = clients::Plan {
         desired: &desired,
         remove: &names,
@@ -177,9 +172,6 @@ fn mcp(ctx: &Ctx, apps: &[App], full_run: bool, remove: bool) -> u32 {
 
 fn real_main() -> Result<u32> {
     let cli = Cli::parse();
-    if !cfg!(target_os = "macos") {
-        bail!("craftctl currently supports macOS only");
-    }
     let cfg = config::load()?;
     let http = Http::new();
     let cat = catalog::load(&http)?;
@@ -197,7 +189,7 @@ fn real_main() -> Result<u32> {
         }
         Cmd::Config => {
             println!("config: {}", config::path().display());
-            println!("cli folder: {}", cfg.cli_root().display());
+            println!("install folder: {}", cfg.install_root().display());
             println!("allowed folders: {}", cfg.roots().join(", "));
             println!("\navailable apps:");
             for a in &cat.apps {
